@@ -89,28 +89,6 @@ def get_power_flow():
     return data
 
 
-def get_battery_level():
-    logger.debug('Getting battery level')
-    start_time = datetime.datetime.now() - datetime.timedelta(minutes=60)
-    end_time = datetime.datetime.now() + datetime.timedelta(minutes=15)
-    params = {'startTime': start_time, 'endTime': end_time}
-    data = api_request('storageData', params)
-    logger.debug(data)
-    n_batteries = data['storageData']['batteryCount']
-    if n_batteries != 1:
-        msg = f'Expected 1 battery, but found {n_batteries}'
-        logger.error(msg)
-        raise BatteryNotFoundError(msg)
-    battery_data = data['storageData']['batteries'][0]
-    if battery_data['telemetryCount'] == 0:
-        msg = f'No telemetry data found'
-        logger.error(msg)
-        raise BatteryNotFoundError(msg)
-    charge = battery_data['telemetries'][-1]['batteryPercentageState']
-    logger.debug(f'Battery charge is {charge}')
-    return charge
-
-
 def _format_if_datetime(value):
     if isinstance(value, datetime.datetime):
         return value.strftime(API_TIME_FORMAT)
