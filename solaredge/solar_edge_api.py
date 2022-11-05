@@ -81,7 +81,12 @@ def get_power_details(start_time: datetime.datetime, end_time: datetime.datetime
 def get_power_flow():
     data = api_request('currentPowerFlow')
     logger.debug(data)
-    return data['siteCurrentPowerFlow']
+    data = data['siteCurrentPowerFlow']
+    error_power = round(2**15 / 1000, 2)
+    if data['STORAGE']['currentPower'] == error_power:
+        data['STORAGE']['currentPower'] = 0
+        data['LOAD']['currentPower'] -= error_power
+    return data
 
 
 def get_battery_level():
