@@ -9,8 +9,6 @@ from typing import Dict, Tuple
 
 import requests
 
-from energyhub.config import config
-
 API_URL = 'https://monitoringapi.solaredge.com'
 API_DATE_FORMAT = "%Y-%m-%d"
 API_TIME_FORMAT = (API_DATE_FORMAT + " %H:%M:%S")
@@ -22,31 +20,68 @@ class BatteryNotFoundError(Exception):
     pass
 
 
-def get_power_history_for_site():
-    site_start_date, site_end_date = get_site_dates()
-    start_date = site_start_date
-    end_date = _end_of_month(start_date)
-    while start_date < site_end_date:
-        data = get_power_details(start_date, end_date)
-        month_label = start_date.strftime('%Y-%m')
-        with open(f'power_details_{month_label}.json', 'w') as file:
-            json.dump(data, file, indent=4)
-        start_date = _start_of_next_month(start_date)
+class SolarEdgeClient:
+    def __init__(self, api_key, site_id):
+        self.api_key = api_key
+        self.site_id = site_id
+
+    def api_request(self, function: str, params: dict = None) -> Dict:
+        if params is None:
+            params = {}
+        params = {key: _format_if_datetime(value) for key, value in params.items()}
+        params['api_key'] = self.api_key
+        url = '/'.join((API_URL, 'site', str(self.site_id), function))
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return json.loads(response.text)
+
+    def get_power_flow(self):
+        data = self.api_request('currentPowerFlow')
+        logger.debug(data)
+        data = data['siteCurrentPowerFlow']
+        error_power = round(2**15 / 1000, 2)
+        if data['STORAGE']['currentPower'] == error_power:
+            data['STORAGE']['currentPower'] = 0
+            data['LOAD']['currentPower'] -= error_power
+        return data
+
+    def get_power_details(self, start_time: datetime.datetime, end_time: datetime.datetime):
+        params = {'startTime': start_time, 'endTime': end_time}
+        data = self.api_request('powerDetails', params)
+        logger.debug(json.dumps(data, indent=4))
+        return data
+
+    def get_site_dates(self) -> Tuple[datetime.datetime, datetime.datetime]:
+        date_range_data = self.api_request('dataPeriod')
+        start_date = datetime.datetime.strptime(date_range_data['dataPeriod']['startDate'], API_DATE_FORMAT)
+        end_date = datetime.datetime.strptime(date_range_data['dataPeriod']['endDate'], API_DATE_FORMAT)
+        return start_date, end_date
+
+    def get_power_history_for_site(self):
+        site_start_date, site_end_date = self.get_site_dates()
+        start_date = site_start_date
         end_date = _end_of_month(start_date)
+        while start_date < site_end_date:
+            data = self.get_power_details(start_date, end_date)
+            month_label = start_date.strftime('%Y-%m')
+            with open(f'power_details_{month_label}.json', 'w') as file:
+                json.dump(data, file, indent=4)
+            start_date = _start_of_next_month(start_date)
+            end_date = _end_of_month(start_date)
 
-
-def get_battery_history_for_site():
-    site_start_date, site_end_date = get_site_dates()
-    one_week = datetime.timedelta(days=7)
-    start_date = site_start_date
-    end_date = start_date + one_week - datetime.timedelta(hours=1)
-    while start_date < site_end_date:
-        # loop over weeks
-        battery_data = api_request('storageData', {'startTime': start_date, 'endTime': end_date})
-        with open(f'battery_details_{start_date.strftime(API_DATE_FORMAT)}.json', 'w') as file:
-            json.dump(battery_data, file, indent=4)
-        start_date = start_date + one_week
-        end_date = end_date + one_week
+    def get_battery_history_for_site(self):
+        site_start_date, site_end_date = self.get_site_dates()
+        one_week = datetime.timedelta(days=7)
+        start_date = site_start_date
+        end_date = start_date + one_week - datetime.timedelta(hours=1)
+        while start_date < site_end_date:
+            # loop over weeks
+            battery_data = self.api_request('storageData',
+                                            {'startTime': start_date, 'endTime': end_date})
+            with open(f'battery_details_{start_date.strftime(API_DATE_FORMAT)}.json', 'w') as file:
+                json.dump(battery_data, file, indent=4)
+            start_date = start_date + one_week
+            end_date = end_date + one_week
 
 
 def _start_of_next_month(date):
@@ -64,42 +99,6 @@ def _end_of_month(start_date):
     return end_of_month
 
 
-def get_site_dates() -> Tuple[datetime.datetime, datetime.datetime]:
-    date_range_data = api_request('dataPeriod')
-    start_date = datetime.datetime.strptime(date_range_data['dataPeriod']['startDate'], API_DATE_FORMAT)
-    end_date = datetime.datetime.strptime(date_range_data['dataPeriod']['endDate'], API_DATE_FORMAT)
-    return start_date, end_date
-
-
-def get_power_details(start_time: datetime.datetime, end_time: datetime.datetime):
-    params = {'startTime': start_time, 'endTime': end_time}
-    data = api_request('powerDetails', params)
-    logger.debug(json.dumps(data, indent=4))
-    return data
-
-
-def get_power_flow():
-    data = api_request('currentPowerFlow')
-    logger.debug(data)
-    data = data['siteCurrentPowerFlow']
-    error_power = round(2**15 / 1000, 2)
-    if data['STORAGE']['currentPower'] == error_power:
-        data['STORAGE']['currentPower'] = 0
-        data['LOAD']['currentPower'] -= error_power
-    return data
-
-
 def _format_if_datetime(value):
     if isinstance(value, datetime.datetime):
         return value.strftime(API_TIME_FORMAT)
-
-
-def api_request(function: str, params: dict = None) -> Dict:
-    if params is None:
-        params = {}
-    params = {key: _format_if_datetime(value) for key, value in params.items()}
-    params['api_key'] = config['solar-edge-api-key']
-    url = '/'.join((API_URL, 'site', str(config['solar-edge-site-id']), function))
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    return json.loads(response.text)
