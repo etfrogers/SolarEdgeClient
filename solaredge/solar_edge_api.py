@@ -5,8 +5,9 @@ import json
 import logging
 import os
 import pathlib
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
+import numpy as np
 import requests
 
 API_URL = 'https://monitoringapi.solaredge.com'
@@ -44,6 +45,27 @@ class SolarEdgeClient:
             data['STORAGE']['currentPower'] = 0
             data['LOAD']['currentPower'] -= error_power
         return data
+
+    def get_power_history_for_day(self, date: datetime.date) -> Dict[str, np.ndarray]:
+        data = self.get_power_details(datetime.datetime.combine(date, datetime.time(0)),
+                                      datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+        details = data['powerDetails']
+        assert details['timeUnit'] == 'QUARTER_OF_AN_HOUR'
+        assert details['unit'] == 'W'
+        timestamp_list = self._extract_time_stamps(details['meters'][0]['values'], 'date')
+        output = {'timestamps': np.array(timestamp_list)}
+        for meter_data in details['meters']:
+            meter_name = meter_data['type']
+            values = meter_data['values']
+            assert self._extract_time_stamps(values, 'date') == timestamp_list
+            powers = np.array([entry.get('value', 0) for entry in values])
+            output[meter_name] = powers
+        return output
+
+    @staticmethod
+    def _extract_time_stamps(value_list: List[dict], time_name: str) -> List[datetime.datetime]:
+        times = [datetime.datetime.strptime(entry[time_name], API_TIME_FORMAT) for entry in value_list]
+        return times
 
     def get_power_details(self, start_time: datetime.datetime, end_time: datetime.datetime):
         params = {'startTime': start_time, 'endTime': end_time}

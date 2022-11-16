@@ -140,11 +140,6 @@ class PowerHistory:
     def dates(self):
         return np.array([xi.date() for xi in self.timestamps])
 
-    @staticmethod
-    def _extract_time_stamps(value_list: List[dict], time_name: str) -> List[datetime.datetime]:
-        times = [datetime.datetime.strptime(entry[time_name], API_TIME_FORMAT) for entry in value_list]
-        return times
-
     def _list_to_array(self, meter: str) -> np.ndarray:
         return np.array(getattr(self, self._list_name(meter)))
 
