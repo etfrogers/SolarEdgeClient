@@ -91,6 +91,41 @@ class SolarEdgeClient:
             start_date = _start_of_next_month(start_date)
             end_date = _end_of_month(start_date)
 
+    def get_battery_history_for_day(self, date: datetime.date):
+        data = self.get_battery_history(datetime.datetime.combine(date, datetime.time(0)),
+                                        datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+        data = data['storageData']
+        if data['batteryCount'] != 1:
+            raise NotImplementedError
+        data = data['batteries'][0]
+        timestamp_list = self._extract_time_stamps(data['telemetries'], 'timeStamp')
+        charge_power_from_grid = [entry['power']
+                                  if (entry['power'] is not None
+                                      and entry['power'] > 0
+                                      and entry['ACGridCharging'] > 0) else 0
+                                  for entry in data['telemetries']]
+        charge_power_from_solar = [entry['power']
+                                   if (entry['power'] is not None
+                                       and entry['power'] > 0
+                                       and entry['ACGridCharging'] == 0) else 0
+                                   for entry in data['telemetries']]
+        discharge_power = [-entry['power']
+                           if (entry['power'] is not None and entry['power'] < 0) else 0
+                           for entry in data['telemetries']]
+        charge_percentage = [entry['batteryPercentageState'] for entry in data['telemetries']]
+        output = {'timestamps': np.array(timestamp_list),
+                  'charge_power_from_grid': np.array(charge_power_from_grid),
+                  'discharge_power': np.array(discharge_power),
+                  'charge_power_from_solar': np.array(charge_power_from_solar),
+                  'charge_percentage': np.array(charge_percentage),
+                  }
+        return output
+
+    def get_battery_history(self, start_date: datetime.datetime, end_date: datetime.datetime):
+        battery_data = self.api_request('storageData',
+                                        {'startTime': start_date, 'endTime': end_date})
+        return battery_data
+
     def get_battery_history_for_site(self):
         site_start_date, site_end_date = self.get_site_dates()
         one_week = datetime.timedelta(days=7)
@@ -98,8 +133,7 @@ class SolarEdgeClient:
         end_date = start_date + one_week - datetime.timedelta(hours=1)
         while start_date < site_end_date:
             # loop over weeks
-            battery_data = self.api_request('storageData',
-                                            {'startTime': start_date, 'endTime': end_date})
+            battery_data = self.get_battery_history(start_date, end_date)
             with open(f'battery_details_{start_date.strftime(API_DATE_FORMAT)}.json', 'w') as file:
                 json.dump(battery_data, file, indent=4)
             start_date = start_date + one_week
