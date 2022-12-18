@@ -46,6 +46,19 @@ class SolarEdgeClient:
             data['LOAD']['currentPower'] -= error_power
         return data
 
+    def get_energy_for_day(self, date: datetime.date) -> Dict[str, float]:
+        data = self.get_energy_details(datetime.datetime.combine(date, datetime.time(0)),
+                                       datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+        data = data['energyDetails']
+        assert data['unit'] == 'Wh'
+        output = {}
+        for meter in data['meters']:
+            assert len(meter['values']) == 1
+            value = meter['values'][0]
+            assert value['date'] == date.strftime(API_TIME_FORMAT)
+            output[meter['type']] = value['value']
+        return output
+
     def get_power_history_for_day(self, date: datetime.date) -> Dict[str, np.ndarray]:
         data = self.get_power_details(datetime.datetime.combine(date, datetime.time(0)),
                                       datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
@@ -70,6 +83,13 @@ class SolarEdgeClient:
     def get_power_details(self, start_time: datetime.datetime, end_time: datetime.datetime):
         params = {'startTime': start_time, 'endTime': end_time}
         data = self.api_request('powerDetails', params)
+        logger.debug(json.dumps(data, indent=4))
+        return data
+
+    def get_energy_details(self, start_time: datetime.datetime, end_time: datetime.datetime,
+                           time_unit: str = 'DAY'):
+        params = {'startTime': start_time, 'endTime': end_time, 'timeUnit': time_unit}
+        data = self.api_request('energyDetails', params)
         logger.debug(json.dumps(data, indent=4))
         return data
 
