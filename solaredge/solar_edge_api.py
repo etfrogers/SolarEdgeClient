@@ -133,13 +133,27 @@ class SolarEdgeClient:
                            if (entry['power'] is not None and entry['power'] < 0) else 0
                            for entry in data['telemetries']]
         charge_percentage = [entry['batteryPercentageState'] for entry in data['telemetries']]
-        output = {'timestamps': np.array(timestamp_list),
+        timestamps = np.array(timestamp_list)
+        output = {'timestamps': timestamps,
                   'charge_power_from_grid': np.array(charge_power_from_grid),
                   'discharge_power': np.array(discharge_power),
                   'charge_power_from_solar': np.array(charge_power_from_solar),
                   'charge_percentage': np.array(charge_percentage),
+                  'charge_from_grid_energy': sum([entry['ACGridCharging'] for entry in data['telemetries']]),
+                  'discharge_energy': self.integrate_power(timestamps, discharge_power),
+                  'charge_from_solar_energy': self.integrate_power(timestamps, charge_power_from_solar),
                   }
         return output
+
+    @staticmethod
+    def integrate_power(timestamps, powers):
+        dt = np.diff(timestamps)
+        # assume first entry is the standard 5-minute interval.
+        dt = np.concatenate(([datetime.timedelta(minutes=5)], dt))
+        dt_seconds = np.array([t.total_seconds() for t in dt])
+        dt_hours = dt_seconds / (60 * 60)
+        dt_hours = dt_hours
+        return np.sum(dt_hours * powers)
 
     def get_battery_history(self, start_date: datetime.datetime, end_date: datetime.datetime):
         battery_data = self.api_request('storageData',
