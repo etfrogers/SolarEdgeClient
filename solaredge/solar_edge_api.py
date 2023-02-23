@@ -192,3 +192,5 @@ def _end_of_month(start_date):
 def _format_if_datetime(value):
     if isinstance(value, datetime.datetime):
         return value.strftime(API_TIME_FORMAT)
+    else:
+        return value
