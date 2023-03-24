@@ -133,15 +133,20 @@ class SolarEdgeClient:
                            if (entry['power'] is not None and entry['power'] < 0) else 0
                            for entry in data['telemetries']]
         charge_percentage = [entry['batteryPercentageState'] for entry in data['telemetries']]
+        charge_percentage = np.array(charge_percentage)
+        full_charge_energy = [entry['fullPackEnergyAvailable'] for entry in data['telemetries']]
+        full_charge_energy = np.array(full_charge_energy)
+        energy_stored = full_charge_energy * charge_percentage / 100
         timestamps = np.array(timestamp_list)
         output = {'timestamps': timestamps,
                   'charge_power_from_grid': np.array(charge_power_from_grid),
                   'discharge_power': np.array(discharge_power),
                   'charge_power_from_solar': np.array(charge_power_from_solar),
-                  'charge_percentage': np.array(charge_percentage),
+                  'charge_percentage': np.asarray(charge_percentage),
                   'charge_from_grid_energy': sum([entry['ACGridCharging'] for entry in data['telemetries']]),
                   'discharge_energy': self.integrate_power(timestamps, discharge_power),
                   'charge_from_solar_energy': self.integrate_power(timestamps, charge_power_from_solar),
+                  'stored_energy': energy_stored
                   }
         return output
 
