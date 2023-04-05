@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import pathlib
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Union
 
 import numpy as np
 import requests
@@ -47,31 +47,38 @@ class SolarEdgeClient:
         return data
 
     def get_energy_for_day(self, date: datetime.date) -> Dict[str, float]:
-        data = self.get_energy_details(datetime.datetime.combine(date, datetime.time(0)),
-                                       datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
-        data = data['energyDetails']
-        assert data['unit'] == 'Wh'
-        output = {}
-        for meter in data['meters']:
-            assert len(meter['values']) == 1
-            value = meter['values'][0]
-            assert value['date'] == date.strftime(API_TIME_FORMAT)
-            output[meter['type']] = value['value']
+        output = self.get_energy_details(datetime.datetime.combine(date, datetime.time(0)),
+                                         datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+        assert output['timestamps'] == date
         return output
 
     def get_power_history_for_day(self, date: datetime.date) -> Dict[str, np.ndarray]:
         data = self.get_power_details(datetime.datetime.combine(date, datetime.time(0)),
-                                      datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+                                      datetime.datetime.combine(date, datetime.time(hour=23, minute=59)),
+                                      time_unit='QUARTER_OF_AN_HOUR')
         details = data['powerDetails']
         assert details['timeUnit'] == 'QUARTER_OF_AN_HOUR'
         assert details['unit'] == 'W'
-        timestamp_list = self._extract_time_stamps(details['meters'][0]['values'], 'date')
-        output = {'timestamps': np.array(timestamp_list)}
-        for meter_data in details['meters']:
+        output = self.meter_list_to_dict(details['meters'])
+        return output
+
+    @staticmethod
+    def meter_list_to_dict(meters: List) -> Dict[str, Union[float, np.ndarray]]:
+        timestamp_list = SolarEdgeClient._extract_time_stamps(meters[0]['values'], 'date')
+        single_entry = len(timestamp_list) == 1
+        if single_entry:
+            timestamps = timestamp_list[0]
+        else:
+            timestamps = np.array(timestamp_list)
+        output = {'timestamps': timestamps}
+        for meter_data in meters:
             meter_name = meter_data['type']
             values = meter_data['values']
-            assert self._extract_time_stamps(values, 'date') == timestamp_list
-            powers = np.array([entry.get('value', 0) for entry in values])
+            assert SolarEdgeClient._extract_time_stamps(values, 'date') == timestamp_list
+            if single_entry:
+                powers = values[0]
+            else:
+                powers = np.array([entry.get('value', 0) for entry in values])
             output[meter_name] = powers
         return output
 
@@ -80,8 +87,9 @@ class SolarEdgeClient:
         times = [datetime.datetime.strptime(entry[time_name], API_TIME_FORMAT) for entry in value_list]
         return times
 
-    def get_power_details(self, start_time: datetime.datetime, end_time: datetime.datetime):
-        params = {'startTime': start_time, 'endTime': end_time}
+    def get_power_details(self, start_time: datetime.datetime, end_time: datetime.datetime,
+                          time_unit: str = 'DAY'):
+        params = {'startTime': start_time, 'endTime': end_time, 'timeUnit': time_unit}
         data = self.api_request('powerDetails', params)
         logger.debug(json.dumps(data, indent=4))
         return data
@@ -91,6 +99,9 @@ class SolarEdgeClient:
         params = {'startTime': start_time, 'endTime': end_time, 'timeUnit': time_unit}
         data = self.api_request('energyDetails', params)
         logger.debug(json.dumps(data, indent=4))
+        data = data['energyDetails']
+        assert data['unit'] == 'Wh'
+        data = self.meter_list_to_dict(data['meters'])
         return data
 
     def get_site_dates(self) -> Tuple[datetime.datetime, datetime.datetime]:
