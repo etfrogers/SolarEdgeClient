@@ -10,6 +10,8 @@ from typing import Dict, Tuple, List, Union
 import numpy as np
 import requests
 
+from energyhub.utils import day_start_end_times
+
 API_URL = 'https://monitoringapi.solaredge.com'
 API_DATE_FORMAT = "%Y-%m-%d"
 API_TIME_FORMAT = (API_DATE_FORMAT + " %H:%M:%S")
@@ -22,9 +24,11 @@ class BatteryNotFoundError(Exception):
 
 
 class SolarEdgeClient:
-    def __init__(self, api_key, site_id):
+    def __init__(self, api_key, site_id, timezone=None):
         self.api_key = api_key
         self.site_id = site_id
+        # Note all times are returned in the timezone of the site
+        self.timezone = timezone
 
     def api_request(self, function: str, params: dict = None) -> Dict:
         if params is None:
@@ -47,14 +51,12 @@ class SolarEdgeClient:
         return data
 
     def get_energy_for_day(self, date: datetime.date) -> Dict[str, float]:
-        output = self.get_energy_details(datetime.datetime.combine(date, datetime.time(0)),
-                                         datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+        output = self.get_energy_details(*day_start_end_times(date))
         assert output['timestamps'] == date
         return output
 
     def get_power_history_for_day(self, date: datetime.date) -> Dict[str, np.ndarray]:
-        data = self.get_power_details(datetime.datetime.combine(date, datetime.time(0)),
-                                      datetime.datetime.combine(date, datetime.time(hour=23, minute=59)),
+        data = self.get_power_details(*day_start_end_times(date),
                                       time_unit='QUARTER_OF_AN_HOUR')
         details = data['powerDetails']
         assert details['timeUnit'] == 'QUARTER_OF_AN_HOUR'
@@ -62,9 +64,8 @@ class SolarEdgeClient:
         output = self.meter_list_to_dict(details['meters'])
         return output
 
-    @staticmethod
-    def meter_list_to_dict(meters: List) -> Dict[str, Union[float, np.ndarray]]:
-        timestamp_list = SolarEdgeClient._extract_time_stamps(meters[0]['values'], 'date')
+    def meter_list_to_dict(self, meters: List) -> Dict[str, Union[float, np.ndarray]]:
+        timestamp_list = self._extract_time_stamps(meters[0]['values'], 'date')
         single_entry = len(timestamp_list) == 1
         if single_entry:
             timestamps = timestamp_list[0]
@@ -74,7 +75,7 @@ class SolarEdgeClient:
         for meter_data in meters:
             meter_name = meter_data['type']
             values = meter_data['values']
-            assert SolarEdgeClient._extract_time_stamps(values, 'date') == timestamp_list
+            assert self._extract_time_stamps(values, 'date') == timestamp_list
             if single_entry:
                 powers = values[0]
             else:
@@ -82,9 +83,9 @@ class SolarEdgeClient:
             output[meter_name] = powers
         return output
 
-    @staticmethod
-    def _extract_time_stamps(value_list: List[dict], time_name: str) -> List[datetime.datetime]:
+    def _extract_time_stamps(self, value_list: List[dict], time_name: str) -> List[datetime.datetime]:
         times = [datetime.datetime.strptime(entry[time_name], API_TIME_FORMAT) for entry in value_list]
+        times = [t.replace(tzinfo=self.timezone) for t in times]
         return times
 
     def get_power_details(self, start_time: datetime.datetime, end_time: datetime.datetime,
@@ -123,8 +124,7 @@ class SolarEdgeClient:
             end_date = _end_of_month(start_date)
 
     def get_battery_history_for_day(self, date: datetime.date):
-        data = self.get_battery_history(datetime.datetime.combine(date, datetime.time(0)),
-                                        datetime.datetime.combine(date, datetime.time(hour=23, minute=59)))
+        data = self.get_battery_history(*day_start_end_times(date))
         data = data['storageData']
         if data['batteryCount'] != 1:
             raise NotImplementedError
