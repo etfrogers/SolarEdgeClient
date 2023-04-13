@@ -10,7 +10,7 @@ from typing import Dict, Tuple, List, Union
 import numpy as np
 import requests
 
-from energyhub.utils import day_start_end_times
+from energyhub.config import config
 
 API_URL = 'https://monitoringapi.solaredge.com'
 API_DATE_FORMAT = "%Y-%m-%d"
@@ -210,3 +210,9 @@ def _format_if_datetime(value):
         return value.strftime(API_TIME_FORMAT)
     else:
         return value
+
+
+def day_start_end_times(day: datetime.date):
+    start = datetime.datetime.combine(day, datetime.time(0), tzinfo=config.timezone)
+    end = start + datetime.timedelta(days=1)
+    return start, end
