@@ -52,7 +52,7 @@ class SolarEdgeClient:
 
     def get_energy_for_day(self, date: datetime.date) -> Dict[str, float]:
         output = self.get_energy_details(*day_start_end_times(date))
-        assert output['timestamps'] == date
+        assert output['timestamps'].date() == date
         return output
 
     def get_power_history_for_day(self, date: datetime.date) -> Dict[str, np.ndarray]:
@@ -77,7 +77,7 @@ class SolarEdgeClient:
             values = meter_data['values']
             assert self._extract_time_stamps(values, 'date') == timestamp_list
             if single_entry:
-                powers = values[0]
+                powers = values[0]['value']
             else:
                 powers = np.array([entry.get('value', 0) for entry in values])
             output[meter_name] = powers
