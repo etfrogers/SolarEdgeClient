@@ -214,5 +214,6 @@ def _format_if_datetime(value):
 
 def day_start_end_times(day: datetime.date):
     start = datetime.datetime.combine(day, datetime.time(0), tzinfo=config.timezone)
-    end = start + datetime.timedelta(days=1)
+    # period is inclusive, so if we don't subtract one second, we ge the frst period of the next day too.
+    end = start + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)
     return start, end
